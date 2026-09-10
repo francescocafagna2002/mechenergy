@@ -160,7 +160,7 @@ def convert_duckdb(files: List[str], tmp_dir: str, threads: Optional[int], memor
             con.execute(sql)
         except duckdb.OutOfMemoryException:
             print("DuckDB out of memory -> this file via pandas ...", end=" ", flush=True)
-            convert_pandas([f], tmp_dir, part_offset=10_000 + i)
+            _convert_one_pandas(f, tmp_dir, 10_000 + i * 1000)
         print(f"{time.time() - t:.0f} s", flush=True)
     con.close()
 
@@ -168,17 +168,14 @@ def convert_duckdb(files: List[str], tmp_dir: str, threads: Optional[int], memor
 # -----------------------------------------------------------------------------
 # step 1b: pandas conversion (fallback, ~10x slower)
 # -----------------------------------------------------------------------------
-def convert_pandas(files: List[str], tmp_dir: str, chunksize: int = 250_000,
-                   max_buffer_rows: int = 600_000, part_offset: int = 0) -> None:
-    """Fallback without DuckDB: stream each file in chunks, keep rows per bucket in memory and
-    flush every bucket once ~max_buffer_rows rows are buffered (~400 MB), so a 3 GB month
-    becomes a handful of files per bucket instead of thousands."""
+def _convert_one_pandas(f: str, tmp_dir: str, part_base: int, chunksize: int = 250_000,
+                        max_buffer_rows: int = 600_000) -> int:
+    """Convert ONE monthly file (pandas, streaming): returns the number of meter-days written.
+    Rows are kept per bucket in memory and flushed every ~max_buffer_rows rows (~400 MB)."""
     import numpy as np
     import pandas as pd
     import pyarrow as pa
     import pyarrow.parquet as pq
-
-    part_no = part_offset
 
     def flush(buf: dict, part_no: int) -> None:
         for b, frames in buf.items():
@@ -189,50 +186,80 @@ def convert_pandas(files: List[str], tmp_dir: str, chunksize: int = 250_000,
                            os.path.join(d, f"data_{part_no}.parquet"), compression="snappy")
         buf.clear()
 
-    for i, f in enumerate(files):
-        t = time.time()
-        print(f"  [{i + 1}/{len(files)}] {os.path.basename(os.path.dirname(f))}/{os.path.basename(f)} ...", end=" ", flush=True)
-        buf: dict = {}
-        buffered = 0
-        n_seen = n_kept = 0
-        lay = file_layout(f)
-        names = layout_names(lay)
-        dtypes = {c: "string" for c in names[:lay["n_lead"]]}
-        dtypes.update({v: "float32" for v in VCOLS})
-        has_meter, has_plz = lay["roles"]["meter"] is not None, lay["roles"]["plz"] is not None
-        for ch in pd.read_csv(f, sep=";", header=None, skiprows=1, names=names, dtype=dtypes, index_col=False,
-                              na_values=["", " ", "-"], keep_default_na=False, chunksize=chunksize,
-                              encoding="utf-8", encoding_errors="replace", engine="c"):
-            obis = ch["obis"].astype(str).str.strip()
-            keep = np.array(obis.isin([OBIS_IMPORT, OBIS_EXPORT]).values, copy=True)
-            date = pd.to_datetime(ch["date"].astype(str).str.strip(), format="%d.%m.%Y", errors="coerce")
-            keep &= date.notna().values
-            n_seen += len(ch); n_kept += int(keep.sum())
-            if n_seen >= 1000 and n_kept == 0:
-                raise SystemExit(f"\nABORT: none of the first {n_seen} rows of {f} passed the OBIS/date filter.\n"
-                                 f"layout: {lay}\nfirst row as parsed: {ch.iloc[0, :6].tolist()}\n"
-                                 f"run  python build_store.py ROOT --check  to see the raw layout.")
-            if not keep.any():
-                continue
-            ch, obis, date = ch[keep], obis[keep], date[keep]
-            vals = ch[VCOLS].to_numpy(dtype="float32") * np.float32(4.0)         # kWh/15min -> kW
-            out = pd.DataFrame({
-                "mp_id": ch["mp_id"].astype(str).str.strip().values,
-                "channel": np.where(obis.values == OBIS_IMPORT, "import", "export"),
-                "date": date.dt.date.values,
-                "plz": ch["plz"].astype(str).str.strip().values if has_plz else "",
-                "meter": ch["meter"].astype(str).str.strip().values if has_meter else "",
-            })
-            out = pd.concat([out, pd.DataFrame(vals, columns=VCOLS)], axis=1)
-            out["bucket"] = out["mp_id"].map(bucket_of)
-            for b, g in out.groupby("bucket", sort=False):
-                buf.setdefault(int(b), []).append(g.drop(columns="bucket"))
-            buffered += len(out)
-            if buffered >= max_buffer_rows:
-                flush(buf, part_no); part_no += 1; buffered = 0
-        if buf:
-            flush(buf, part_no); part_no += 1
-        print(f"{time.time() - t:.0f} s", flush=True)
+    lay = file_layout(f)
+    names = layout_names(lay)
+    dtypes = {c: "string" for c in names[:lay["n_lead"]]}
+    dtypes.update({v: "float32" for v in VCOLS})
+    has_meter, has_plz = lay["roles"]["meter"] is not None, lay["roles"]["plz"] is not None
+    buf: dict = {}
+    buffered = n_seen = n_kept = 0
+    part_no = part_base
+    for ch in pd.read_csv(f, sep=";", header=None, skiprows=1, names=names, dtype=dtypes, index_col=False,
+                          na_values=["", " ", "-"], keep_default_na=False, chunksize=chunksize,
+                          encoding="utf-8", encoding_errors="replace", engine="c"):
+        obis = ch["obis"].astype(str).str.strip()
+        keep = np.array(obis.isin([OBIS_IMPORT, OBIS_EXPORT]).values, copy=True)
+        date = pd.to_datetime(ch["date"].astype(str).str.strip(), format="%d.%m.%Y", errors="coerce")
+        keep &= date.notna().values
+        n_seen += len(ch); n_kept += int(keep.sum())
+        if n_seen >= 1000 and n_kept == 0:
+            raise SystemExit(f"\nABORT: none of the first {n_seen} rows of {f} passed the OBIS/date filter.\n"
+                             f"layout: {lay}\nfirst row as parsed: {ch.iloc[0, :6].tolist()}\n"
+                             f"run  python build_store.py ROOT --check  to see the raw layout.")
+        if not keep.any():
+            continue
+        ch, obis, date = ch[keep], obis[keep], date[keep]
+        vals = ch[VCOLS].to_numpy(dtype="float32") * np.float32(4.0)         # kWh/15min -> kW
+        out = pd.DataFrame({
+            "mp_id": ch["mp_id"].astype(str).str.strip().values,
+            "channel": np.where(obis.values == OBIS_IMPORT, "import", "export"),
+            "date": date.dt.date.values,
+            "plz": ch["plz"].astype(str).str.strip().values if has_plz else "",
+            "meter": ch["meter"].astype(str).str.strip().values if has_meter else "",
+        })
+        out = pd.concat([out, pd.DataFrame(vals, columns=VCOLS)], axis=1)
+        out["bucket"] = out["mp_id"].map(bucket_of)
+        for b, g in out.groupby("bucket", sort=False):
+            buf.setdefault(int(b), []).append(g.drop(columns="bucket"))
+        buffered += len(out)
+        if buffered >= max_buffer_rows:
+            flush(buf, part_no); part_no += 1; buffered = 0
+    if buf:
+        flush(buf, part_no)
+    return n_kept
+
+
+def _job(args):
+    f, tmp_dir, part_base, max_buffer_rows = args
+    t = time.time()
+    n = _convert_one_pandas(f, tmp_dir, part_base, max_buffer_rows=max_buffer_rows)
+    return f, n, time.time() - t
+
+
+def convert_pandas(files: List[str], tmp_dir: str, chunksize: int = 250_000, max_buffer_rows: int = 600_000,
+                   part_offset: int = 0, jobs: int = 1, progress=None) -> None:
+    """All files via the pandas path; `jobs` files in parallel processes (each ~1 GB peak)."""
+    from concurrent.futures import ProcessPoolExecutor
+
+    tasks = [(f, tmp_dir, part_offset + i * 1000, max_buffer_rows) for i, f in enumerate(files)]
+    t0 = time.time()
+    done = 0
+    if jobs <= 1:
+        results = map(_job, tasks)
+    else:
+        pool = ProcessPoolExecutor(max_workers=jobs)
+        results = pool.map(_job, tasks)
+    for f, n, secs in results:
+        done += 1
+        elapsed = time.time() - t0
+        eta = elapsed / done * (len(files) - done)
+        msg = (f"  [{done}/{len(files)}] {os.path.basename(os.path.dirname(f))}/{os.path.basename(f)} ... "
+               f"{n:,} meter-days, {secs:.0f} s | elapsed {elapsed / 60:.1f} min, ETA {eta / 60:.1f} min")
+        print(msg, flush=True)
+        if progress:
+            progress(msg)
+    if jobs > 1:
+        pool.shutdown()
 
 
 # -----------------------------------------------------------------------------
@@ -320,12 +347,20 @@ def main(argv: Optional[List[str]] = None) -> None:
     ap.add_argument("--memory-limit", default="1.5GB", help="DuckDB memory limit (default 1.5GB; spills to disk)")
     ap.add_argument("--no-duckdb", action="store_true", help="use the pandas path (bounded memory, ~1 GB) instead of DuckDB")
     ap.add_argument("--buffer-rows", type=int, default=600_000, help="pandas path: rows buffered before flushing (default 600k ≈ 0.8 GB peak)")
+    ap.add_argument("--jobs", type=int, default=1, help="pandas path: files converted in parallel (each ~1 GB RAM; use ~cores, RAM/1.5GB)")
+    ap.add_argument("--progress", default="build_progress.txt", help="text file updated after every file (default build_progress.txt)")
     ap.add_argument("--check", action="store_true", help="only inspect the files' layouts (and the filters on one file per year), then exit")
     a = ap.parse_args(argv)
 
     files = find_files(a.root, a.month, a.pattern)
     if a.check:
         check_all(files); return
+
+    def progress(msg: str) -> None:
+        with open(a.progress, "a") as pf:
+            pf.write(time.strftime("%H:%M:%S ") + msg.strip() + "\n")
+    with open(a.progress, "w") as pf:
+        pf.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} build started: {len(files)} files -> {os.path.abspath(a.store)}\n")
     store = os.path.abspath(a.store)
     tmp = store + "_tmp"
     shutil.rmtree(tmp, ignore_errors=True)
@@ -339,13 +374,14 @@ def main(argv: Optional[List[str]] = None) -> None:
         except ImportError:
             print("duckdb not installed (pip install duckdb) -> using the slower pandas path", flush=True)
             use_duckdb = False
-    print(f"step 1: converting {len(files)} files with {'DuckDB' if use_duckdb else 'pandas'} ...", flush=True)
+    print(f"step 1: converting {len(files)} files with {'DuckDB' if use_duckdb else f'pandas, {a.jobs} in parallel'} ...", flush=True)
     if use_duckdb:
         convert_duckdb(files, tmp, a.threads, a.memory_limit)
     else:
-        convert_pandas(files, tmp, max_buffer_rows=a.buffer_rows)
+        convert_pandas(files, tmp, max_buffer_rows=a.buffer_rows, jobs=a.jobs, progress=progress)
     t1 = time.time()
     print(f"step 1 done in {t1 - t0:.0f} s\nstep 2: compacting buckets (sort by house) ...", flush=True)
+    progress(f"step 1 done in {(t1 - t0) / 60:.1f} min; step 2 (compacting 256 buckets) running ...")
 
     if os.path.exists(store):
         shutil.rmtree(store)
@@ -356,8 +392,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     with open(os.path.join(store, "_manifest.json"), "w") as f:
         json.dump(stats, f, indent=1)
     size = sum(os.path.getsize(p) for p in glob.glob(os.path.join(store, "**", "*.parquet"), recursive=True))
-    print(f"\ndone: {stats['houses']:,} houses, {stats['rows']:,} meter-days, {size / 1e9:.2f} GB in {store}"
-          f"  ({time.time() - t0:.0f} s total)")
+    msg = (f"done: {stats['houses']:,} houses, {stats['rows']:,} meter-days, {size / 1e9:.2f} GB in {store}"
+           f"  ({(time.time() - t0) / 60:.1f} min total)")
+    print("\n" + msg); progress(msg)
 
 
 if __name__ == "__main__":
