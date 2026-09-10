@@ -1,0 +1,51 @@
+total 0
+drwxr-xr-x 1 root root 0 Jan  1  2000 test-blob
+total 0
+drwxr-xr-x 1 root root 0 Jan  1  2000 input_data
+total 7.8M
+drwxr-xr-x 1 root root    0 Jan  1  2000 2023
+drwxr-xr-x 1 root root    0 Jan  1  2000 2024
+drwxr-xr-x 1 root root    0 Jan  1  2000 2025
+drwxr-xr-x 1 root root    0 Jan  1  2000 2026
+-rw-r--r-- 1 root root  83K Sep 10 13:03 HackDays2026 - GIGI.csv
+-rw-r--r-- 1 root root 3.5M Sep 10 13:03 mpid_zähler_mapping.csv
+-rw-r--r-- 1 root root 4.3M Sep 10 13:03 Zähler-GP.csv
+total 0
+drwxr-xr-x 1 root root 0 Jan  1  2000 2023
+total 0
+drwxr-xr-x 1 root root 0 Jan  1  2000 April 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 August 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 Dezember 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 Februar 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 Januar 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 Juli 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 Juni 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 Mai 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 März 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 November 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 Oktober 2024
+drwxr-xr-x 1 root root 0 Jan  1  2000 September 2024
+total 0
+drwxr-xr-x 1 root root 0 Jan  1  2000 April 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 August 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 Dezember 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 Februar 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 Januar 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 Juli 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 Juni 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 Mai 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 März 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 November 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 Oktober 2025
+drwxr-xr-x 1 root root 0 Jan  1  2000 September 2025
+total 0
+drwxr-xr-x 1 root root 0 Jan  1  2000 April 2026
+drwxr-xr-x 1 root root 0 Jan  1  2000 Februar 2026
+drwxr-xr-x 1 root root 0 Jan  1  2000 Januar 2026
+drwxr-xr-x 1 root root 0 Jan  1  2000 Juli 2026
+drwxr-xr-x 1 root root 0 Jan  1  2000 Juni 2026
+drwxr-xr-x 1 root root 0 Jan  1  2000 Mai 2026
+drwxr-xr-x 1 root root 0 Jan  1  2000 März 2026
+-rw-r--r-- 1 root root 83K Sep 10 13:03 /home/renku/work/aew-data/test-blob/input_data/HackDays2026 - GIGI.csv
+-rw-r--r-- 1 root root 4.3M Sep 10 13:03 /home/renku/work/aew-data/test-blob/input_data/Zähler-GP.csv
+-rw-r--r-- 1 root root 3.5M Sep 10 13:03 /home/renku/work/aew-data/test-blob/input_data/mpid_zähler_mapping.csv
