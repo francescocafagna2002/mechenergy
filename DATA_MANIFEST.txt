@@ -1,51 +1,117 @@
-total 0
-drwxr-xr-x 1 root root 0 Jan  1  2000 test-blob
-total 0
-drwxr-xr-x 1 root root 0 Jan  1  2000 input_data
-total 7.8M
-drwxr-xr-x 1 root root    0 Jan  1  2000 2023
-drwxr-xr-x 1 root root    0 Jan  1  2000 2024
-drwxr-xr-x 1 root root    0 Jan  1  2000 2025
-drwxr-xr-x 1 root root    0 Jan  1  2000 2026
--rw-r--r-- 1 root root  83K Sep 10 13:03 HackDays2026 - GIGI.csv
--rw-r--r-- 1 root root 3.5M Sep 10 13:03 mpid_zähler_mapping.csv
--rw-r--r-- 1 root root 4.3M Sep 10 13:03 Zähler-GP.csv
-total 0
-drwxr-xr-x 1 root root 0 Jan  1  2000 2023
-total 0
-drwxr-xr-x 1 root root 0 Jan  1  2000 April 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 August 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 Dezember 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 Februar 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 Januar 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 Juli 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 Juni 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 Mai 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 März 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 November 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 Oktober 2024
-drwxr-xr-x 1 root root 0 Jan  1  2000 September 2024
-total 0
-drwxr-xr-x 1 root root 0 Jan  1  2000 April 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 August 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 Dezember 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 Februar 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 Januar 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 Juli 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 Juni 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 Mai 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 März 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 November 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 Oktober 2025
-drwxr-xr-x 1 root root 0 Jan  1  2000 September 2025
-total 0
-drwxr-xr-x 1 root root 0 Jan  1  2000 April 2026
-drwxr-xr-x 1 root root 0 Jan  1  2000 Februar 2026
-drwxr-xr-x 1 root root 0 Jan  1  2000 Januar 2026
-drwxr-xr-x 1 root root 0 Jan  1  2000 Juli 2026
-drwxr-xr-x 1 root root 0 Jan  1  2000 Juni 2026
-drwxr-xr-x 1 root root 0 Jan  1  2000 Mai 2026
-drwxr-xr-x 1 root root 0 Jan  1  2000 März 2026
--rw-r--r-- 1 root root 83K Sep 10 13:03 /home/renku/work/aew-data/test-blob/input_data/HackDays2026 - GIGI.csv
--rw-r--r-- 1 root root 4.3M Sep 10 13:03 /home/renku/work/aew-data/test-blob/input_data/Zähler-GP.csv
--rw-r--r-- 1 root root 3.5M Sep 10 13:03 /home/renku/work/aew-data/test-blob/input_data/mpid_zähler_mapping.csv
+/home/renku/work/aew-data
+/home/renku/work/aew-data/test-blob
+/home/renku/work/aew-data/test-blob/input_data
+/home/renku/work/aew-data/test-blob/input_data/2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/April 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/August 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Dezember 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Februar 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Januar 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Juli 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Juni 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Mai 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/März 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/November 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Oktober 2023
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/September 2023
+/home/renku/work/aew-data/test-blob/input_data/2024
+/home/renku/work/aew-data/test-blob/input_data/2024/April 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/August 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/Dezember 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/Februar 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/Januar 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/Juli 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/Juni 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/Mai 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/März 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/November 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/Oktober 2024
+/home/renku/work/aew-data/test-blob/input_data/2024/September 2024
+/home/renku/work/aew-data/test-blob/input_data/2025
+/home/renku/work/aew-data/test-blob/input_data/2025/April 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/August 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/Dezember 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/Februar 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/Januar 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/Juli 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/Juni 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/Mai 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/März 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/November 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/Oktober 2025
+/home/renku/work/aew-data/test-blob/input_data/2025/September 2025
+/home/renku/work/aew-data/test-blob/input_data/2026
+/home/renku/work/aew-data/test-blob/input_data/2026/April 2026
+/home/renku/work/aew-data/test-blob/input_data/2026/Februar 2026
+/home/renku/work/aew-data/test-blob/input_data/2026/Januar 2026
+/home/renku/work/aew-data/test-blob/input_data/2026/Juli 2026
+/home/renku/work/aew-data/test-blob/input_data/2026/Juni 2026
+/home/renku/work/aew-data/test-blob/input_data/2026/Mai 2026
+/home/renku/work/aew-data/test-blob/input_data/2026/März 2026
+
+=== File counts and sizes per folder ===
+13G	/home/renku/work/aew-data/test-blob/input_data/2023/2023
+13G	/home/renku/work/aew-data/test-blob/input_data/2023
+1.4G	/home/renku/work/aew-data/test-blob/input_data/2024/April 2024
+1.7G	/home/renku/work/aew-data/test-blob/input_data/2024/August 2024
+1.8G	/home/renku/work/aew-data/test-blob/input_data/2024/Dezember 2024
+1.3G	/home/renku/work/aew-data/test-blob/input_data/2024/Februar 2024
+1.3G	/home/renku/work/aew-data/test-blob/input_data/2024/Januar 2024
+1.6G	/home/renku/work/aew-data/test-blob/input_data/2024/Juli 2024
+1.5G	/home/renku/work/aew-data/test-blob/input_data/2024/Juni 2024
+1.5G	/home/renku/work/aew-data/test-blob/input_data/2024/Mai 2024
+1.4G	/home/renku/work/aew-data/test-blob/input_data/2024/März 2024
+1.7G	/home/renku/work/aew-data/test-blob/input_data/2024/November 2024
+1.1G	/home/renku/work/aew-data/test-blob/input_data/2024/Oktober 2024
+1.7G	/home/renku/work/aew-data/test-blob/input_data/2024/September 2024
+18G	/home/renku/work/aew-data/test-blob/input_data/2024
+2.0G	/home/renku/work/aew-data/test-blob/input_data/2025/April 2025
+2.5G	/home/renku/work/aew-data/test-blob/input_data/2025/August 2025
+2.8G	/home/renku/work/aew-data/test-blob/input_data/2025/Dezember 2025
+1.7G	/home/renku/work/aew-data/test-blob/input_data/2025/Februar 2025
+1.8G	/home/renku/work/aew-data/test-blob/input_data/2025/Januar 2025
+2.4G	/home/renku/work/aew-data/test-blob/input_data/2025/Juli 2025
+2.2G	/home/renku/work/aew-data/test-blob/input_data/2025/Juni 2025
+2.2G	/home/renku/work/aew-data/test-blob/input_data/2025/Mai 2025
+2.0G	/home/renku/work/aew-data/test-blob/input_data/2025/März 2025
+2.6G	/home/renku/work/aew-data/test-blob/input_data/2025/November 2025
+2.6G	/home/renku/work/aew-data/test-blob/input_data/2025/Oktober 2025
+2.5G	/home/renku/work/aew-data/test-blob/input_data/2025/September 2025
+27G	/home/renku/work/aew-data/test-blob/input_data/2025
+2.9G	/home/renku/work/aew-data/test-blob/input_data/2026/April 2026
+2.5G	/home/renku/work/aew-data/test-blob/input_data/2026/Februar 2026
+2.8G	/home/renku/work/aew-data/test-blob/input_data/2026/Januar 2026
+3.2G	/home/renku/work/aew-data/test-blob/input_data/2026/Juli 2026
+3.0G	/home/renku/work/aew-data/test-blob/input_data/2026/Juni 2026
+3.0G	/home/renku/work/aew-data/test-blob/input_data/2026/Mai 2026
+2.9G	/home/renku/work/aew-data/test-blob/input_data/2026/März 2026
+20G	/home/renku/work/aew-data/test-blob/input_data/2026
+78G	/home/renku/work/aew-data/test-blob/input_data
+
+=== Sample filenames ===
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/April 2023/LG_AIM2Hackerdays_kWh_20260826_201441.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/August 2023/LG_AIM2Hackerdays_kWh_20260828_151916.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Dezember 2023/LG_AIM2Hackerdays_kWh_20260830_205227.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Februar 2023/LG_AIM2Hackerdays_kWh_20260825_152222.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Januar 2023/LG_AIM2Hackerdays_kWh_20260825_131305.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Juli 2023/LG_AIM2Hackerdays_kWh_20260828_124337.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Juni 2023/LG_AIM2Hackerdays_kWh_20260827_211912.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Mai 2023/LG_AIM2Hackerdays_kWh_20260827_144609.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/März 2023/LG_AIM2Hackerdays_kWh_20260827_084034.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/November 2023/LG_AIM2Hackerdays_kWh_20260830_162012.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Oktober 2023/LG_AIM2Hackerdays_kWh_20260830_112533.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/September 2023/LG_AIM2Hackerdays_kWh_20260829_055849.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/April 2024/LG_AIM2Hackerdays_kWh_20260812_070837.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/August 2024/LG_AIM2Hackerdays_kWh_20260814_133937.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/Dezember 2024/LG_AIM2Hackerdays_kWh_20260822_063349.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/Februar 2024/LG_AIM2Hackerdays_kWh_20260811_062000.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/Januar 2024/LG_AIM2Hackerdays_kWh_20260807_062250.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/Juli 2024/LG_AIM2Hackerdays_kWh_20260814_064940.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/Juni 2024/LG_AIM2Hackerdays_kWh_20260813_095327.csv
+/home/renku/work/aew-data/test-blob/input_data/2024/Mai 2024/LG_AIM2Hackerdays_kWh_20260812_124247.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/April 2023/LG_AIM2Hackerdays_kWh_20260826_201441.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/August 2023/LG_AIM2Hackerdays_kWh_20260828_151916.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Dezember 2023/LG_AIM2Hackerdays_kWh_20260830_205227.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Februar 2023/LG_AIM2Hackerdays_kWh_20260825_152222.csv
+/home/renku/work/aew-data/test-blob/input_data/2023/2023/Januar 2023/LG_AIM2Hackerdays_kWh_20260825_131305.csv
