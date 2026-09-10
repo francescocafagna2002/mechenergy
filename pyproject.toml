@@ -1,0 +1,18 @@
+[project]
+name = "data-processing-mechenergy"
+version = "0.1.0"
+description = "Data processing project."
+requires-python = ">=3.10"
+dependencies = [
+    "polars>=1.0.0",
+    "pandas>=2.0.0",
+    "pyarrow>=15.0.0",
+    "numpy>=1.26",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+    "plotly>=5.20",
+    "scikit-learn>=1.4",
+    "jupyterlab>=4.0",
+    "ipykernel>=6.29",
+    "tqdm>=4.66",
+]
