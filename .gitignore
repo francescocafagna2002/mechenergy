@@ -1,1 +1,7 @@
 .claude/
+build/
+*.egg-info/
+__pycache__/
+*.pyc
+check_matplotlib.py
+check_matplotlib.png
