@@ -147,6 +147,7 @@ EXPORT_NOISE_KW = 0.05       # export below 50 W (12.5 Wh per quarter-hour) is m
 EXPORT_REAL_KW = 0.10        # a house "really exports" if its typical daily max export reaches 100 W
 MIN_DAYS = 20                # (no longer gates any feature; kept for reference)
 
+
 SLOT_HOUR = (np.arange(N_SLOTS) + 0.5) / 4.0
 
 
