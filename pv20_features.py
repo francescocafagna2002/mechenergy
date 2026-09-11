@@ -41,32 +41,31 @@ series directly; no signed "net" series is built.  Negative raw values are
 floored at 0 and counted in n_negative_raw.
 
 ==============================================================================
-THE TWENTY FEATURES   (summer = May-Aug, winter = Nov-Feb; a seasonal feature
-needs >= 20 days in that season, an all-year feature >= 20 days in total, else NaN)
+THE TWENTY FEATURES   (summer = May-Aug, winter = Nov-Feb)
 ==============================================================================
-A. EXPORT COUNTER — direct evidence (NaN when the meter has no export rows)
+A. EXPORT COUNTER — direct evidence.  A meter without export rows counts as export = 0.
+   Windows of export are divided by the house's OWN IMPORT (never by its export), so every
+   feature exists for every house and a house that never exports is exactly 0 everywhere.
 
- 1. export_kwh_total            [kWh, >= 0]
-    Total energy ever exported.  A meter can only count export if something
-    behind it pushes energy out: a generator (PV) or a storage device.
-    0 = nothing behind the meter.  This is THE tell; the rest says what and how big.
+ 1. export_kwh_total            [kWh, >= 0]  total energy ever exported.  A meter can only
+    count export if something behind it pushes energy out: a generator (PV) or storage.
+    0 = nothing behind the meter.  THE tell; the rest says what and how big.
  2. export_days_frac            [0..1]  share of all days with > 0.1 kWh exported.
-    PV -> high (most days in summer, fewer in winter); battery-only -> depends on control.
  3. export_to_import_ratio_summer   [>= 0]  summer export / summer import.  PV -> 0.3 .. 3.
  4. export_to_import_ratio_winter   [>= 0]  same in winter.  PV -> small (weak sun);
     a battery trading with the grid -> similar to summer.
- 5. export_winter_share         [0..1]  winter export per day / (summer + winter export per day).
-    PV -> ~0.05-0.2 (sun is seasonal); grid-charged battery -> ~0.5 (no season).
- 6. export_midday_share_summer  [0..1]  share of summer export between 9 h and 17 h.
-    Sun -> 0.7-0.9.  Battery discharging in the evening -> low.
- 7. export_night_share          [0..1]  share of ALL export between 20 h and 6 h.
-    Sun -> ~0.  Anything here is not the sun: battery (or a CHP).
- 8. export_mean_hour_summer     [h]  energy-weighted mean clock hour of summer export.
-    PV -> ~13.5 (solar noon in Aargau, summer time).  Later = evening discharge.
- 9. export_hour_std_summer      [h]  energy-weighted spread of that hour.
-    PV -> ~2-3 h (a bell over the day); a short evening burst -> ~1 h.
-10. export_max_kw               [kW]  95th percentile of the daily maximum export power
-    ~ size of the inverter / PV system.
+ 5. export_midday_over_import_summer  [>= 0]  summer export between 9 h and 17 h / summer import.
+    For the sun this is nearly all of feature 3; for an evening battery it is ~0.
+ 6. export_night_over_import    [>= 0]  export between 20 h and 6 h / import, all days.
+    Sun -> 0.  Anything here is not the sun: battery (or a CHP).
+ 7. export_midday_minus_evening_over_import_summer  [signed]  (export 11-15 h - export 17-23 h)
+    / summer import.  Sun -> positive; battery discharging in the evening -> negative; none -> 0.
+ 8. export_max_kw               [kW]  95th percentile of the daily maximum export power
+    ~ size of the inverter / PV system (0 if none).
+ 9. export_max_over_mean_import [>= 0]  that maximum / the house's mean import power:
+    size of the generator relative to the house.
+10. export_summer_minus_winter_over_import  [signed]  (summer export per day - winter export
+    per day) / mean daily import.  Sun is seasonal -> positive; a grid-charged battery -> ~0.
 
 B. IMPORT COUNTER — consumption shape (works on every meter)
 
@@ -107,6 +106,12 @@ Speed: with a house list, files are skimmed with grep in byte mode, --workers fi
 time, and the extracted lines are cached in --cache-dir (a repeat run on the same houses
 reads only the cache).
 
+EVERY FEATURE IS COMPUTED FOR EVERY HOUSE: no export rows -> export = 0; export windows are
+divided by the house's own import; night denominators are max(night, 20 W); a seasonal feature
+uses however many days the season has, and a house with NO day in a season uses all of its days
+for that season (then n_summer_days / n_winter_days = 0).  FILL_VALUES only remain as a safety
+net (a warning is printed if they were ever needed).
+
 Data-quality columns: n_days, n_summer_days, n_winter_days, has_export_register, has_real_export,
 export_max_raw_kw,
 mean_import_kw (average import power: household ~0.2-0.8 kW, tens of kW = business),
@@ -140,7 +145,7 @@ DAYLIGHT = (9, 17)           # hours
 ZERO_KW = 0.02               # import <= 20 W == "the house imports nothing"
 EXPORT_NOISE_KW = 0.05       # export below 50 W (12.5 Wh per quarter-hour) is meter noise, not generation
 EXPORT_REAL_KW = 0.10        # a house "really exports" if its typical daily max export reaches 100 W
-MIN_DAYS = 20
+MIN_DAYS = 20                # (no longer gates any feature; kept for reference)
 
 SLOT_HOUR = (np.arange(N_SLOTS) + 0.5) / 4.0
 
@@ -152,12 +157,14 @@ def _mask(a: float, b: float) -> np.ndarray:
 
 MID_MASK, NIGHT_MASK, DAY_MASK = _mask(*MIDDAY), _mask(*NIGHT), _mask(*DAYLIGHT)
 LATE_MASK = _mask(20, 6)          # 20 h .. 06 h : export here is not the sun
+EVE_MASK = _mask(17, 23)          # 17 h .. 23 h : where a battery discharges
 NIGHTZ_MASK = _mask(22, 6)        # 22 h .. 06 h : zero import here is a battery
 
 FEATURE_NAMES = [
     "export_kwh_total", "export_days_frac", "export_to_import_ratio_summer",
-    "export_to_import_ratio_winter", "export_winter_share", "export_midday_share_summer",
-    "export_night_share", "export_mean_hour_summer", "export_hour_std_summer", "export_max_kw",
+    "export_to_import_ratio_winter", "export_midday_over_import_summer", "export_night_over_import",
+    "export_midday_minus_evening_over_import_summer", "export_max_kw", "export_max_over_mean_import",
+    "export_summer_minus_winter_over_import",
     "import_midday_night_ratio_summer", "import_midday_night_ratio_winter",
     "import_zero_hours_midday_summer", "import_zero_hours_night",
     "import_midday_share_winter_minus_summer", "import_min_hour_offset_noon_summer",
@@ -455,7 +462,7 @@ def first_store_ids(store: str, n: int) -> List[str]:
 # 2. reduce every (meter, channel, day) row of 96 values to per-day numbers
 # =============================================================================
 _F = lambda m: m.astype(np.float32)
-_W_MID, _W_NIGHT, _W_DAY, _W_LATE, _W_NIGHTZ = _F(MID_MASK), _F(NIGHT_MASK), _F(DAY_MASK), _F(LATE_MASK), _F(NIGHTZ_MASK)
+_W_MID, _W_NIGHT, _W_DAY, _W_LATE, _W_NIGHTZ, _W_EVE = _F(MID_MASK), _F(NIGHT_MASK), _F(DAY_MASK), _F(LATE_MASK), _F(NIGHTZ_MASK), _F(EVE_MASK)
 _W_ONE = np.ones(N_SLOTS, dtype=np.float32)
 _H, _H2 = SLOT_HOUR.astype(np.float32), (SLOT_HOUR ** 2).astype(np.float32)
 
@@ -472,6 +479,7 @@ def reduce_days(lab: pd.DataFrame, vals: np.ndarray) -> pd.DataFrame:
         d["mid_tot"] = v @ _W_MID
         d["day_tot"] = v @ _W_DAY
         d["late_tot"] = v @ _W_LATE
+        d["eve_tot"] = v @ _W_EVE
         n_mid, n_night = fin @ _W_MID, fin @ _W_NIGHT
         d["mid_mean"] = np.where(n_mid > 0, d["mid_tot"] / n_mid, np.nan)
         d["night_mean"] = np.where(n_night > 0, (v @ _W_NIGHT) / n_night, np.nan)
@@ -545,7 +553,8 @@ def load_days_from_store(store: str, verbose: bool = True, month: Optional[str] 
     if keep is None and max_houses:
         keep = first_store_ids(store, max_houses)
         if verbose:
-            print(f"first {len(keep)} MP IDs of the store: {keep}")
+            shown = keep if len(keep) <= 20 else keep[:10] + ["..."] + keep[-5:]
+            print(f"first {len(keep)} MP IDs of the store: {shown}")
     t0 = time.time()
     days_cache = os.path.join(store, "_days.parquet")          # per-day table of ALL houses, no month filter
     if keep is None and not month and use_days_cache and os.path.exists(days_cache):
@@ -555,10 +564,23 @@ def load_days_from_store(store: str, verbose: bool = True, month: Optional[str] 
                   f"  [--refresh-days to recompute]", flush=True)
         return days
     if keep is not None:
-        parts = [reduce_days(lab, vals) for lab, vals in read_store(store, mp_ids=keep, month=month)]
+        by_bucket: Dict[int, List[str]] = {}
+        for m in keep:
+            by_bucket.setdefault(bucket_of(m), []).append(m)
+        jobs = [(store, os.path.join(store, f"bucket={b}"), month, ids) for b, ids in sorted(by_bucket.items())]
+        if len(jobs) <= 4 or workers <= 1:
+            parts = [p for job in jobs for p in _reduce_bucket(job)]
+        else:                                      # many buckets -> one process per bucket
+            parts = []
+            with ProcessPoolExecutor(max_workers=max(1, min(workers, os.cpu_count() or 1)),
+                                     initializer=_single_thread_blas) as pool:
+                for i, bparts in enumerate(pool.map(_reduce_bucket, jobs)):
+                    parts.extend(bparts)
+                    if verbose and (i + 1) % 16 == 0:
+                        print(f"  {i + 1}/{len(jobs)} buckets ({time.time() - t0:.0f} s)", flush=True)
         if verbose:
             n = sum(len(p) for p in parts)
-            print(f"store: {n:,} meter-days for {len(keep)} houses in {time.time() - t0:.2f} s", flush=True)
+            print(f"store: {n:,} meter-days for {len(keep):,} houses in {time.time() - t0:.1f} s", flush=True)
     else:
         buckets = store_buckets(store)
         parts = []
@@ -586,9 +608,13 @@ def _single_thread_blas() -> None:
 
 
 def _reduce_bucket(args) -> List[pd.DataFrame]:
-    """Worker for the all-houses store run (module-level so it can be sent to another process)."""
-    store, d, month = args
-    return [reduce_days(lab, vals) for lab, vals in read_store(store, buckets=[d], month=month)]
+    """Worker for the store run (module-level so it can be sent to another process):
+    (store, bucket_dir, month) = the whole bucket; (store, bucket_dir, month, ids) = only those houses."""
+    store, d, month = args[:3]
+    ids = args[3] if len(args) > 3 else None
+    if ids is None:
+        return [reduce_days(lab, vals) for lab, vals in read_store(store, buckets=[d], month=month)]
+    return [reduce_days(lab, vals) for lab, vals in read_store(store, mp_ids=ids, month=month)]
 
 
 def _fix_multimeter(days: pd.DataFrame, verbose: bool, exact_fn) -> pd.DataFrame:
@@ -633,93 +659,186 @@ def _exact_days_for(path: str, mp_ids: Set[str], cache_dir: Optional[str] = None
 # =============================================================================
 # 3. the twenty features, vectorised over all houses from the per-day table
 # =============================================================================
-def _valid(s: pd.Series, n: pd.Series) -> pd.Series:
-    return s.where(n.reindex(s.index).fillna(0) >= MIN_DAYS)
-
-
-def _ratio(a: pd.Series, b: pd.Series) -> pd.Series:
-    return a / b.where(b > 0)
+def _season_or_all(I: pd.DataFrame, E: pd.DataFrame, months: Tuple[int, ...], houses: pd.Index):
+    """Season rows of import and export; a house with NO import day in that season contributes
+    all of its days instead, on BOTH channels (its n_<season>_days column is 0, which tells the model)."""
+    Isel = I[I["month"].isin(months)]
+    n = Isel.groupby("mp_id").size().reindex(houses).fillna(0).astype(int)
+    missing = n.index[n == 0]
+    Esel = E[E["month"].isin(months)]
+    if len(missing):
+        Isel = pd.concat([Isel, I[I["mp_id"].isin(missing)]], ignore_index=True)
+        Esel = pd.concat([Esel, E[E["mp_id"].isin(missing)]], ignore_index=True)
+    return Isel, Esel, n
 
 
 def feature_table(days: pd.DataFrame) -> pd.DataFrame:
+    """One row per MP ID: the twenty features + data-quality columns.  Every feature is a
+    computed number for every house: a meter without export rows counts as export = 0, export
+    windows are divided by the house's own import (never by its export), night denominators
+    are max(night, ZERO_KW), and a season with no days falls back to all days."""
     days = days.copy()
     days["month"] = pd.to_datetime(days["date"]).dt.month
     I = days[days["channel"] == "import"]
     E = days[days["channel"] == "export"]
     houses = pd.Index(I["mp_id"].unique(), name="mp_id")
     out = pd.DataFrame(index=houses)
-
-    Is, Iw = I[I["month"].isin(SUMMER_MONTHS)], I[I["month"].isin(WINTER_MONTHS)]
-    Es, Ew = E[E["month"].isin(SUMMER_MONTHS)], E[E["month"].isin(WINTER_MONTHS)]
-    n_all, n_s, n_w = I.groupby("mp_id").size(), Is.groupby("mp_id").size(), Iw.groupby("mp_id").size()
-    has_exp = houses.isin(E["mp_id"].unique())
     g = lambda d, c: d.groupby("mp_id")[c]
 
-    def R(s: pd.Series) -> pd.Series:               # align to the house index
-        return s.reindex(houses)
+    def R(x, fill=0.0) -> pd.Series:                     # align to the house index
+        return x.reindex(houses).fillna(fill)
 
-    # ---------------- A. export counter ----------------
-    exp_tot_all, exp_tot_s, exp_tot_w = g(E, "tot").sum(), g(Es, "tot").sum(), g(Ew, "tot").sum()
-    out["export_kwh_total"] = _valid(R(exp_tot_all / 4.0), n_all)
-    out["export_days_frac"] = _valid(R((E["tot"] / 4.0 > 0.1).groupby(E["mp_id"]).mean()), n_all)
-    out["export_to_import_ratio_summer"] = _valid(R(_ratio(exp_tot_s, g(Is, "tot").sum())), n_s)
-    out["export_to_import_ratio_winter"] = _valid(R(_ratio(exp_tot_w, g(Iw, "tot").sum())), n_w)
-    per_day_s, per_day_w = _ratio(exp_tot_s, g(Es, "tot").size()), _ratio(exp_tot_w, g(Ew, "tot").size())
-    both = per_day_s.add(per_day_w, fill_value=0)
-    f5 = _ratio(per_day_w.reindex(both.index).fillna(0), both)
-    out["export_winter_share"] = _valid(_valid(R(f5), n_s), n_w)
-    out["export_midday_share_summer"] = _valid(R(_ratio(g(Es, "day_tot").sum(), exp_tot_s)), n_s)
-    out["export_night_share"] = _valid(R(_ratio(g(E, "late_tot").sum(), exp_tot_all)), n_all)
-    mean_h = _ratio(g(Es, "hw").sum(), exp_tot_s)
-    var_h = _ratio(g(Es, "hw2").sum(), exp_tot_s) - mean_h ** 2
-    out["export_mean_hour_summer"] = _valid(R(mean_h), n_s)
-    out["export_hour_std_summer"] = _valid(R(np.sqrt(var_h.clip(lower=0))), n_s)
-    out["export_max_kw"] = _valid(R(g(E, "vmax").quantile(0.95)), n_all)
-    for c in FEATURE_NAMES[:10]:                    # no export rows at all -> NaN, not 0
-        out.loc[~has_exp, c] = np.nan
-    # shape-of-export features are meaningless when there is no real export -> NaN
-    real = out["export_max_kw"] >= EXPORT_REAL_KW
-    for c in ("export_winter_share", "export_midday_share_summer", "export_night_share",
-              "export_mean_hour_summer", "export_hour_std_summer"):
-        out.loc[~real, c] = np.nan
+    Is, Es, n_s = _season_or_all(I, E, SUMMER_MONTHS, houses)
+    Iw, Ew, n_w = _season_or_all(I, E, WINTER_MONTHS, houses)
+    eps = ZERO_KW
+
+    # import energies (kW quarter-hours; same unit as export sums, so ratios are unit-free)
+    imp_all, imp_s, imp_w = R(g(I, "tot").sum()), R(g(Is, "tot").sum()), R(g(Iw, "tot").sum())
+    n_all = R(g(I, "tot").size())
+    n_s_used, n_w_used = R(g(Is, "tot").size()), R(g(Iw, "tot").size())
+    imp_per_day = imp_all / n_all.clip(lower=1)
+    mean_import_kw = R(g(I, "tot").sum() / g(I, "n_valid").sum().clip(lower=1))
+    den_all, den_s, den_w = imp_all.clip(lower=eps), imp_s.clip(lower=eps), imp_w.clip(lower=eps)
+
+    # ---------------- A. export counter (export = 0 when the meter has no export rows) ----------------
+    exp_all, exp_s, exp_w = R(g(E, "tot").sum()), R(g(Es, "tot").sum()), R(g(Ew, "tot").sum())
+    out["export_kwh_total"] = exp_all / 4.0
+    out["export_days_frac"] = R((E["tot"] / 4.0 > 0.1).groupby(E["mp_id"]).sum()) / n_all.clip(lower=1)
+    out["export_to_import_ratio_summer"] = exp_s / den_s
+    out["export_to_import_ratio_winter"] = exp_w / den_w
+    out["export_midday_over_import_summer"] = R(g(Es, "day_tot").sum()) / den_s
+    out["export_night_over_import"] = R(g(E, "late_tot").sum()) / den_all
+    out["export_midday_minus_evening_over_import_summer"] = (R(g(Es, "mid_tot").sum()) - R(g(Es, "eve_tot").sum())) / den_s
+    exp_max = R(g(E, "vmax").quantile(0.95))
+    out["export_max_kw"] = exp_max
+    out["export_max_over_mean_import"] = exp_max / mean_import_kw.clip(lower=eps)
+    exp_s_per_day = exp_s / n_s_used.clip(lower=1)
+    exp_w_per_day = exp_w / n_w_used.clip(lower=1)
+    out["export_summer_minus_winter_over_import"] = (exp_s_per_day - exp_w_per_day) / imp_per_day.clip(lower=eps)
 
     # ---------------- B. import counter ----------------
-    night_s, night_w = g(Is, "night_mean").mean(), g(Iw, "night_mean").mean()
-    out["import_midday_night_ratio_summer"] = _valid(R(_ratio(g(Is, "mid_mean").mean(), night_s)), n_s)
-    out["import_midday_night_ratio_winter"] = _valid(R(_ratio(g(Iw, "mid_mean").mean(), night_w)), n_w)
+    night_s = R(g(Is, "night_mean").mean()).clip(lower=eps)
+    night_w = R(g(Iw, "night_mean").mean()).clip(lower=eps)
+    out["import_midday_night_ratio_summer"] = R(g(Is, "mid_mean").mean()) / night_s
+    out["import_midday_night_ratio_winter"] = R(g(Iw, "mid_mean").mean()) / night_w
     ok = Is[Is["n_valid_day"] >= 0.9 * DAY_MASK.sum()]
-    out["import_zero_hours_midday_summer"] = _valid(R(g(ok, "zero_q_mid").mean() / 4.0), g(ok, "zero_q_mid").size())
+    out["import_zero_hours_midday_summer"] = R(g(ok, "zero_q_mid").mean()) / 4.0
     ok = I[I["n_valid_night"] >= 0.9 * NIGHTZ_MASK.sum()]
-    out["import_zero_hours_night"] = _valid(R(g(ok, "zero_q_night").mean() / 4.0), g(ok, "zero_q_night").size())
+    out["import_zero_hours_night"] = R(g(ok, "zero_q_night").mean()) / 4.0
 
-    def _share(d: pd.DataFrame, col: str) -> Tuple[pd.Series, pd.Series]:
+    def _share(d: pd.DataFrame, col: str) -> pd.Series:
         okd = d[(d["tot"] > 0) & (d["n_valid"] >= 0.9 * N_SLOTS)]
-        gg = (okd[col] / okd["tot"]).groupby(okd["mp_id"])
-        return gg.mean(), gg.size()
-    sw, nw_ok = _share(Iw, "mid_tot")
-    ss, ns_ok = _share(Is, "mid_tot")
-    out["import_midday_share_winter_minus_summer"] = R(_valid(sw, nw_ok) - _valid(ss, ns_ok))
+        return R((okd[col] / okd["tot"]).groupby(okd["mp_id"]).mean(), fill=1.0 / 6.0 if col == "mid_tot" else 1.0 / 3.0)
+    out["import_midday_share_winter_minus_summer"] = _share(Iw, "mid_tot") - _share(Is, "mid_tot")
     ok = Is[Is["n_valid"] >= 0.9 * N_SLOTS]
-    out["import_min_hour_offset_noon_summer"] = _valid(R((ok["min_hour"] - SOLAR_NOON_H).abs().groupby(ok["mp_id"]).mean()),
-                                                       g(ok, "min_hour").size())
-    out["import_summer_to_winter_ratio"] = _valid(_valid(R(_ratio(g(Is, "tot").mean(), g(Iw, "tot").mean())), n_s), n_w)
-    sd, nd_ok = _share(Is, "day_tot")
-    out["import_daylight_share_summer"] = R(_valid(sd, nd_ok))
+    out["import_min_hour_offset_noon_summer"] = R((ok["min_hour"] - SOLAR_NOON_H).abs().groupby(ok["mp_id"]).mean(), fill=12.0)
+    out["import_summer_to_winter_ratio"] = (imp_s / n_s_used.clip(lower=1)) / (imp_w / n_w_used.clip(lower=1)).clip(lower=eps)
+    out["import_daylight_share_summer"] = _share(Is, "day_tot")
     mm = g(Is, "mid_mean")
-    out["import_midday_spread_over_night_summer"] = _valid(R(_ratio(mm.quantile(0.95) - mm.quantile(0.05), night_s)), n_s)
-    out["import_midday_p05_over_night_summer"] = _valid(R(_ratio(mm.quantile(0.05), night_s)), n_s)
+    out["import_midday_spread_over_night_summer"] = R(mm.quantile(0.95) - mm.quantile(0.05)) / night_s
+    out["import_midday_p05_over_night_summer"] = R(mm.quantile(0.05)) / night_s
 
     # ---------------- data quality ----------------
-    out["n_days"] = R(n_all).fillna(0).astype(int)
-    out["n_summer_days"] = R(n_s).fillna(0).astype(int)
-    out["n_winter_days"] = R(n_w).fillna(0).astype(int)
-    out["has_export_register"] = has_exp.astype(int)
-    out["has_real_export"] = np.where(has_exp, real.astype(int), np.nan)        # typical daily max >= EXPORT_REAL_KW
-    out["export_max_raw_kw"] = R(g(E, "vmax_raw").max())                       # before the noise floor was applied
-    tot, nv = g(I, "tot").sum(), g(I, "n_valid").sum()
-    out["mean_import_kw"] = R(_ratio(tot, nv))
-    out["n_negative_raw"] = R(days.groupby("mp_id")["n_neg"].sum()).fillna(0).astype(int)
+    out["n_days"] = n_all.astype(int)
+    out["n_summer_days"] = n_s.astype(int)              # 0 = the summer features used all days
+    out["n_winter_days"] = n_w.astype(int)
+    out["has_export_register"] = houses.isin(E["mp_id"].unique()).astype(int)
+    out["has_real_export"] = (exp_max >= EXPORT_REAL_KW).astype(int)
+    out["export_max_raw_kw"] = R(g(E, "vmax_raw").max())
+    out["mean_import_kw"] = mean_import_kw
+    out["n_negative_raw"] = R(days.groupby("mp_id")["n_neg"].sum()).astype(int)
     return out
+
+
+FEATURE_DESC = {
+    "export_kwh_total": "total energy ever exported [kWh]; >0 = generator or storage behind the meter (0 if the meter has no export rows)",
+    "export_days_frac": "share of days with >0.1 kWh exported",
+    "export_to_import_ratio_summer": "summer export / summer import (PV 0.3-3; none 0)",
+    "export_to_import_ratio_winter": "winter export / winter import (PV small; grid battery similar to summer)",
+    "export_midday_over_import_summer": "summer export in 9-17 h / summer import (sun: most of the export; none 0)",
+    "export_night_over_import": "export in 20-6 h / import, all days (sun 0; battery or CHP > 0)",
+    "export_midday_minus_evening_over_import_summer": "(export 11-15 h - export 17-23 h) / summer import: sun > 0, evening battery discharge < 0, none 0",
+    "export_max_kw": "95th percentile of the daily max export [kW] ~ inverter size (0 if none)",
+    "export_max_over_mean_import": "that max / the house's mean import power: generator size relative to the house",
+    "export_summer_minus_winter_over_import": "(summer export per day - winter export per day) / mean daily import: sun > 0, grid battery ~ 0, none 0",
+    "import_midday_night_ratio_summer": "mean import 11-15 h / max(mean import 1-5 h, 20 W), summer (no PV >=1; PV <<1)",
+    "import_midday_night_ratio_winter": "same in winter (PV effect weak)",
+    "import_zero_hours_midday_summer": "hours per summer day (9-17 h) with import <= 20 W (PV: several)",
+    "import_zero_hours_night": "hours per day (22-6 h) with import <= 20 W (battery or empty building)",
+    "import_midday_share_winter_minus_summer": "midday (11-15 h) share of the day's import, winter minus summer (PV positive)",
+    "import_min_hour_offset_noon_summer": "|hour of the daily import minimum - 13.5| [h] (PV < 1.5; night minimum ~9)",
+    "import_summer_to_winter_ratio": "mean daily import summer / winter (PV < 0.5; plain house 0.7-1.0)",
+    "import_daylight_share_summer": "share of the summer day's import in 9-17 h (flat 0.33; PV < 0.15)",
+    "import_midday_spread_over_night_summer": "(p95 - p05 of midday import over summer days) / night import",
+    "import_midday_p05_over_night_summer": "midday import on the 5% sunniest days / night import (PV -> 0)",
+    "n_days": "days of data", "n_summer_days": "May-Aug days (0 = summer features used all days)",
+    "n_winter_days": "Nov-Feb days (0 = winter features used all days)",
+    "has_export_register": "1 = meter has export rows", "has_real_export": "1 = typical daily max export >= 0.1 kW",
+    "export_max_raw_kw": "raw max export before the 50 W noise floor",
+    "mean_import_kw": "average import power [kW]: household 0.2-0.8, tens = business",
+    "n_negative_raw": "negative raw values floored (should be 0)",
+}
+
+
+def write_xlsx(tab: pd.DataFrame, path: str) -> bool:
+    """Excel copy of the feature table: houses as rows, features as columns, frozen header, filters,
+    colour scales per feature, plus a 'legend' sheet.  Returns False if openpyxl is missing."""
+    try:
+        import openpyxl
+        from openpyxl.formatting.rule import ColorScaleRule
+        from openpyxl.utils import get_column_letter
+    except ImportError:
+        print("(no Excel copy: pip install openpyxl)", flush=True)
+        return False
+    with pd.ExcelWriter(path, engine="openpyxl") as xw:
+        tab.reset_index().to_excel(xw, sheet_name="features", index=False, float_format="%.4f")
+        pd.DataFrame({"feature": list(FEATURE_DESC), "meaning": list(FEATURE_DESC.values())}
+                     ).to_excel(xw, sheet_name="legend", index=False)
+        ws = xw.sheets["features"]
+        ws.freeze_panes = "B2"
+        ws.auto_filter.ref = ws.dimensions
+        n_rows = len(tab) + 1
+        for j, col in enumerate(tab.reset_index().columns, start=1):
+            letter = get_column_letter(j)
+            ws.column_dimensions[letter].width = max(12, min(34, len(str(col)) * 0.9))
+            if col in FEATURE_NAMES and n_rows > 2:
+                ws.conditional_formatting.add(f"{letter}2:{letter}{n_rows}",
+                    ColorScaleRule(start_type="min", start_color="F7FBFF", end_type="max", end_color="2171B5"))
+        for cell in ws[1]:
+            cell.alignment = openpyxl.styles.Alignment(text_rotation=60, vertical="bottom")
+        ws.row_dimensions[1].height = 150
+        lg = xw.sheets["legend"]
+        lg.column_dimensions["A"].width = 42; lg.column_dimensions["B"].width = 100
+    return True
+
+
+
+# Value used when a feature cannot be computed (no export, no export register, too few days in a
+# season): always the value a house WITHOUT PV / battery would show, so a fill never looks like a
+# detection.  n_summer_days / n_winter_days / has_export_register tell the model when a fill was used.
+FILL_VALUES = {
+    "export_kwh_total": 0.0, "export_days_frac": 0.0, "export_to_import_ratio_summer": 0.0,
+    "export_to_import_ratio_winter": 0.0,
+    "export_night_over_import": 0.0, "export_midday_minus_evening_over_import_summer": 0.0,
+    "export_max_kw": 0.0, "export_max_over_mean_import": 0.0, "export_summer_minus_winter_over_import": 0.0,
+    "export_midday_over_import_summer": 0.0,
+    "import_midday_night_ratio_summer": 1.0, "import_midday_night_ratio_winter": 1.0,
+    "import_zero_hours_midday_summer": 0.0, "import_zero_hours_night": 0.0,
+    "import_midday_share_winter_minus_summer": 0.0, "import_min_hour_offset_noon_summer": 12.0,
+    "import_summer_to_winter_ratio": 1.0, "import_daylight_share_summer": 1.0 / 3.0,
+    "import_midday_spread_over_night_summer": 0.0, "import_midday_p05_over_night_summer": 1.0,
+    "has_real_export": 0, "export_max_raw_kw": 0.0, "mean_import_kw": 0.0,
+}
+
+
+def fill_missing(tab: pd.DataFrame) -> pd.DataFrame:
+    """Replace every NaN by its FILL_VALUES entry -> a table of numbers only."""
+    tab = tab.copy()
+    for c, v in FILL_VALUES.items():
+        if c in tab.columns:
+            tab[c] = tab[c].fillna(v)
+    tab["has_real_export"] = tab["has_real_export"].astype(int)
+    return tab
 
 
 # =============================================================================
@@ -769,6 +888,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     ap.add_argument("--mp-ids", help="comma-separated MP IDs to keep, e.g. 53628,53701")
     ap.add_argument("--mp-ids-file", help="text file with one MP ID per line (e.g. all labelled houses)")
     ap.add_argument("--pattern", default=FILE_GLOB, help=f"file name pattern of the meter files (default {FILE_GLOB})")
+    ap.add_argument("--keep-nan", action="store_true", help="leave non-computable features empty instead of the neutral fill values")
+    ap.add_argument("--xlsx", help="Excel copy path (default: same name as -o with .xlsx)")
+    ap.add_argument("--no-xlsx", action="store_true", help="do not write the Excel copy")
     ap.add_argument("--refresh-days", action="store_true", help="store: recompute the all-houses per-day table instead of using _days.parquet")
     ap.add_argument("--workers", type=int, default=4, help="files skimmed in parallel when a house list is given (default 4)")
     ap.add_argument("--cache-dir", default="aew_cache", help="folder for the extracted lines (default ./aew_cache; '' = off)")
@@ -787,8 +909,15 @@ def main(argv: Optional[List[str]] = None) -> None:
                      pattern=a.pattern, workers=a.workers, cache_dir=a.cache_dir or None, store=store,
                      use_days_cache=not a.refresh_days)
     tab = feature_table(days)
+    n_missing = int(tab[FEATURE_NAMES].isna().sum().sum())
+    if n_missing:
+        print(f"warning: {n_missing} feature values could not be computed" + ("" if a.keep_nan else " -> filled"), flush=True)
+    if not a.keep_nan:
+        tab = fill_missing(tab)
     tab.to_csv(a.out, float_format="%.4f")
-    print(f"\n{len(tab):,} houses -> {a.out}\n")
+    xlsx = a.xlsx if a.xlsx else os.path.splitext(a.out)[0] + ".xlsx"
+    ok = False if a.no_xlsx else write_xlsx(tab, xlsx)
+    print(f"\n{len(tab):,} houses -> {a.out}" + (f"  +  {xlsx}" if ok else "") + "\n")
     with pd.option_context("display.width", 250, "display.max_columns", 40, "display.max_rows", 60,
                            "display.float_format", "{:.3f}".format):
         if len(tab) <= 30:
@@ -799,6 +928,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     if n_nan.any():
         print("\nall-NaN features (no summer / no winter days in the selected files, or no export rows):",
               ", ".join(n_nan[n_nan].index))
+
 
 
 if __name__ == "__main__":

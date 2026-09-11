@@ -5,3 +5,11 @@ __pycache__/
 *.pyc
 check_matplotlib.py
 check_matplotlib.png
+
+aew_store/
+aew_store_tmp/
+aew_cache/
+build.log
+build_progress.txt
+*.csv
+*.xlsx
