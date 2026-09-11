@@ -16,4 +16,5 @@ build_progress.txt
 !labelled_features_ev.csv
 !houses_10000.csv
 !labelled_features_bat.csv
+!ev_houses_10000.csv
 *.xlsx
