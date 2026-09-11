@@ -18,6 +18,7 @@ build_progress.txt
 !labelled_features_bat.csv
 !ev_houses_10000.csv
 !labelled_features_pv25.csv
+!houses_10000_25.csv
 *.xlsx
 # pv25: local caches, logs, scratch
 .pv25_weather_cache/
