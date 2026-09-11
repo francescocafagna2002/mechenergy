@@ -29,11 +29,12 @@ HOW THE FILES ARE READ (this is what makes the ten-house case fast)
     to a handful of per-day numbers, so the 96-column matrix never sits in memory.
 
 Input files: only files named LG_AIM2Hackerdays_kWh_*.csv are read (change with --pattern).
-Layout of a data row (';'-separated, fixed positions, 101 columns):
-    MP ID ; meter id CHxxxx ; OBIS-Code ; Datum dd.mm.yyyy ; PLZ ; 00:15 ; 00:30 ; ... ; 24:00
+Layout of a data row (';'-separated; read per file from its first data row, as in features_pv20.py):
+    2023 : MP ID ; meter id CHxxxx ; OBIS-Code ; Datum dd.mm.yyyy ; PLZ ; 00:15 ; 00:30 ; ... ; 24:00
+    2024+: MP ID ; OBIS-Code ; Datum ; PLZ ; 96 values ;      (no meter id, trailing ';')
     OBIS 1-1:1.29.0*255 = energy IMPORTED from the grid  (kWh per 15 min)
     OBIS 1-1:2.29.0*255 = energy EXPORTED to the grid    (kWh per 15 min)
-The header line is skipped (it is one column short: it omits the meter id).
+The header line is skipped.
 
 THE DATA ARE NON-NEGATIVE.  Import and export are two separate energy counters,
 each >= 0 by construction.  Every feature is defined on these two non-negative
@@ -168,12 +169,50 @@ FEATURE_NAMES = [
 VCOLS = [f"v{k}" for k in range(N_SLOTS)]
 KEY = ["mp_id", "channel", "date"]
 
-# ---- the meter files: known name, known layout (nothing is guessed) --------------------
+# ---- the meter files: known name; the column layout is read per file from its first data
+# row, because the files differ (2023: MP ID ; meter id ; OBIS ; Datum ; PLZ ; 96 values ;
+# 2024+: no meter-id column; all rows end with a trailing ';').  The last 96 fields are the
+# values; OBIS code, date and meter id are recognised by their formats; MP ID is the first
+# remaining column, PLZ the next.  (same reader as features_pv20.py)
 FILE_GLOB = "LG_AIM2Hackerdays_kWh_*.csv"       # only these files are read (override with --pattern)
-LEAD_COLS = ["mp_id", "meter", "obis", "date", "plz"]   # the 5 columns before the 96 values
-N_COLS = len(LEAD_COLS) + N_SLOTS                       # = 101 columns per data row
+LEAD_COLS = ["mp_id", "meter", "obis", "date", "plz"]   # 2023 layout; kept as the fallback when no layout is given
+N_COLS = len(LEAD_COLS) + N_SLOTS                       # = 101 columns per 2023 data row
 OBIS_IMPORT = "1-1:1.29.0*255"
 OBIS_EXPORT = "1-1:2.29.0*255"
+OBIS_RE = re.compile(r"^\d+-\d+:\d+\.\d+\.\d+")
+DATE_RE = re.compile(r"^\d{2}\.\d{2}\.\d{4}$")
+METER_RE = re.compile(r"^[A-Z]{2}\d{6,}")
+
+
+def file_layout(path: str) -> dict:
+    """{'n_lead': leading columns, 'roles': {'mp_id': i, 'obis': i, 'date': i, 'meter': i|None, 'plz': i|None}}"""
+    with open(path, "r", encoding="utf-8", errors="replace") as f:
+        f.readline()
+        first = f.readline().rstrip("\r\n").split(";")
+    fields = first[:-1] if first and first[-1].strip() == "" else first     # trailing ';' -> empty last field
+    n_lead = len(fields) - N_SLOTS
+    if n_lead < 3:
+        raise ValueError(f"{path}: expected >= 3 leading columns + {N_SLOTS} values, got {len(fields)} fields")
+    lead = [x.strip() for x in fields[:n_lead]]
+    roles: dict = {"meter": None, "plz": None}
+    for i, v in enumerate(lead):
+        if "obis" not in roles and OBIS_RE.match(v):
+            roles["obis"] = i
+        elif "date" not in roles and DATE_RE.match(v):
+            roles["date"] = i
+        elif roles["meter"] is None and METER_RE.match(v):
+            roles["meter"] = i
+    if "obis" not in roles or "date" not in roles:
+        raise ValueError(f"{path}: could not recognise OBIS / date in the first data row {lead}")
+    rest = [i for i in range(n_lead) if i not in (roles["obis"], roles["date"], roles["meter"])]
+    roles["mp_id"] = rest[0]
+    roles["plz"] = rest[1] if len(rest) > 1 else None
+    return {"n_lead": n_lead, "roles": roles}
+
+
+def layout_names(lay: dict) -> List[str]:
+    inv = {i: r for r, i in lay["roles"].items() if i is not None}
+    return [inv.get(i, f"x{i}") for i in range(lay["n_lead"])] + VCOLS
 
 
 # =============================================================================
@@ -262,12 +301,15 @@ def filter_lines(path: str, mp_ids: Iterable[str], cache_dir: Optional[str] = No
     return text
 
 
-def _parse(source, chunksize: Optional[int], skip_header: bool):
-    """Parse rows in the known layout: 5 leading columns + 96 float values, ';'-separated."""
-    names = LEAD_COLS + VCOLS
-    dtypes = {c: "string" for c in LEAD_COLS}
+def _parse(source, chunksize: Optional[int], skip_header: bool, lay: Optional[dict] = None):
+    """Parse rows with the file's layout: n_lead leading columns + 96 float values, ';'-separated.
+    Without `lay` the old fixed 2023 layout (LEAD_COLS) is used, so older callers keep working."""
+    names = layout_names(lay) if lay is not None else LEAD_COLS + VCOLS
+    n_lead = lay["n_lead"] if lay is not None else len(LEAD_COLS)
+    dtypes = {c: "string" for c in names[:n_lead]}
     dtypes.update({v: "float32" for v in VCOLS})
-    return pd.read_csv(source, sep=";", header=None, skiprows=1 if skip_header else 0, names=names,
+    # index_col=False: a trailing ';' (2024+ files) must not shift the columns
+    return pd.read_csv(source, sep=";", header=None, skiprows=1 if skip_header else 0, names=names, index_col=False,
                        dtype=dtypes, na_values=["", " ", "-"], keep_default_na=False, chunksize=chunksize,
                        encoding="utf-8", encoding_errors="replace", engine="c")
 
@@ -309,15 +351,16 @@ def iter_aew_csv(path: str, mp_ids: Optional[Iterable[str]] = None,
     """Yield (labels[mp_id, channel, date, n_neg], values[n, 96] kW >= 0) from one monthly file.
     With mp_ids: only those houses' lines are extracted from the text and parsed (fast).
     Without: the whole file is streamed in chunks."""
+    lay = file_layout(path)                    # 2023 and 2024+ files have different leading columns
     if mp_ids is not None:
         text = filter_lines(path, mp_ids, cache_dir)
         if not text.strip():
             return
-        out = _finish(_parse(io.StringIO(text), None, skip_header=False))
+        out = _finish(_parse(io.StringIO(text), None, skip_header=False, lay=lay))
         if out is not None:
             yield out
         return
-    for ch in _parse(path, chunksize, skip_header=True):
+    for ch in _parse(path, chunksize, skip_header=True, lay=lay):
         out = _finish(ch)
         if out is not None:
             yield out
@@ -508,7 +551,8 @@ def load_days_from_store(store: str, verbose: bool = True, month: Optional[str] 
     if keep is None and max_houses:
         keep = first_store_ids(store, max_houses)
         if verbose:
-            print(f"first {len(keep)} MP IDs of the store: {keep}")
+            shown = keep if len(keep) <= 20 else keep[:10] + ["..."] + keep[-5:]
+            print(f"first {len(keep)} MP IDs of the store: {shown}")
     t0 = time.time()
     days_cache = os.path.join(store, "_days.parquet")          # per-day table of ALL houses, no month filter
     if keep is None and not month and use_days_cache and os.path.exists(days_cache):
@@ -518,10 +562,24 @@ def load_days_from_store(store: str, verbose: bool = True, month: Optional[str] 
                   f"  [--refresh-days to recompute]", flush=True)
         return days
     if keep is not None:
-        parts = [reduce_days(lab, vals) for lab, vals in read_store(store, mp_ids=keep, month=month)]
+        # group the houses by bucket; few buckets -> read them here, many -> one process per bucket
+        by_bucket: Dict[int, List[str]] = {}
+        for m in keep:
+            by_bucket.setdefault(bucket_of(m), []).append(m)
+        jobs = [(store, os.path.join(store, f"bucket={b}"), month, ids) for b, ids in sorted(by_bucket.items())]
+        if len(jobs) <= 4 or workers <= 1:
+            parts = [p for job in jobs for p in _reduce_bucket(job)]
+        else:
+            parts = []
+            with ProcessPoolExecutor(max_workers=max(1, min(workers, os.cpu_count() or 1)),
+                                     initializer=_single_thread_blas) as pool:
+                for i, bparts in enumerate(pool.map(_reduce_bucket, jobs)):
+                    parts.extend(bparts)
+                    if verbose and (i + 1) % 16 == 0:
+                        print(f"  {i + 1}/{len(jobs)} buckets ({time.time() - t0:.0f} s)", flush=True)
         if verbose:
             n = sum(len(p) for p in parts)
-            print(f"store: {n:,} meter-days for {len(keep)} houses in {time.time() - t0:.2f} s", flush=True)
+            print(f"store: {n:,} meter-days for {len(keep):,} houses in {time.time() - t0:.1f} s", flush=True)
     else:
         buckets = store_buckets(store)
         parts = []
@@ -549,9 +607,13 @@ def _single_thread_blas() -> None:
 
 
 def _reduce_bucket(args) -> List[pd.DataFrame]:
-    """Worker for the all-houses store run (module-level so it can be sent to another process)."""
-    store, d, month = args
-    return [reduce_days(lab, vals) for lab, vals in read_store(store, buckets=[d], month=month)]
+    """Worker for the store run (module-level so it can be sent to another process):
+    (store, bucket_dir, month) = the whole bucket; (store, bucket_dir, month, ids) = only those houses."""
+    store, d, month = args[:3]
+    ids = args[3] if len(args) > 3 else None
+    if ids is None:
+        return [reduce_days(lab, vals) for lab, vals in read_store(store, buckets=[d], month=month)]
+    return [reduce_days(lab, vals) for lab, vals in read_store(store, mp_ids=ids, month=month)]
 
 
 def _fix_multimeter(days: pd.DataFrame, verbose: bool, exact_fn) -> pd.DataFrame:

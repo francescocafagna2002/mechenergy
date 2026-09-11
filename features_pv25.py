@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-pv25_features.py
+features_pv25.py
 ================
 
 25 model features for AEW PV detection:
@@ -17,24 +17,21 @@ the same.
 
 Place these files in the same directory:
     pv20_features.py
-    pv25_features.py
+    features_pv25.py
 
-BINARY STORE (default, same as pv20_features.py / features_pv20.py):
-    If ./aew_store exists it is used automatically (built once with run_build.sh /
-    build_store.py).  The GIGI file and the CSV root are found automatically in
-    ../aew-data/test-blob/input_data, so from ~/work/mechenergy this is enough:
+CSV test mode (no binary store required):
+    python features_pv25.py \
+        /home/renku/work/aew-data/test-blob/input_data \
+        --gigi "/home/renku/work/aew-data/test-blob/input_data/HackDays2026 - GIGI.csv" \
+        --max-houses 3 \
+        -o pv25_quick.csv
 
-        python pv25_features.py --max-houses 3 -o three_houses_25.csv
-        python pv25_features.py --mp-ids 53628,45390 -o two_houses_25.csv
-        python pv25_features.py --mp-ids-file mp_ids_para_features.csv --workers 4 -o labelled_features_25.csv
-
-CSV mode (no store, slow; force it with --store ''):
-    python pv25_features.py ../aew-data/test-blob/input_data --store '' \
-        --max-houses 3 -o three_houses_25.csv
-
-The store holds the 96 values per meter-day.  The PLZ (needed only to pick the weather
-station) is read from the store if it has a 'plz' column; otherwise it is taken from
-the raw CSV lines of those houses (grep, cached in --cache-dir).
+Fast store mode (later, when aew_store exists):
+    python features_pv25.py \
+        --store aew_store \
+        --gigi "/home/renku/work/aew-data/test-blob/input_data/HackDays2026 - GIGI.csv" \
+        --max-houses 3 \
+        -o pv25_quick.csv
 
 LOCATION
 --------
@@ -117,6 +114,8 @@ are cached under .pv25_weather_cache by default.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+import csv
 import glob
 import hashlib
 import io
@@ -138,7 +137,7 @@ try:
     import pv20_features as pv20
 except ImportError as exc:
     raise SystemExit(
-        "pv20_features.py must be in the same folder as pv25_features.py"
+        "pv20_features.py must be in the same folder as features_pv25.py"
     ) from exc
 
 
@@ -146,9 +145,7 @@ except ImportError as exc:
 # 0. CONSTANTS
 # =============================================================================
 
-# default locations inside the Renku session (run from ~/work/mechenergy)
-DEFAULT_CSV_ROOT = "../aew-data/test-blob/input_data"
-DEFAULT_GIGI = os.path.join(DEFAULT_CSV_ROOT, "HackDays2026 - GIGI.csv")
+
 
 MIN_WEATHER_DAYS = 20
 SUNNY_Q = 0.75
@@ -339,8 +336,43 @@ def read_gigi_cantons(path):
     return result
 
 
-# (the old raw_csv_layout() monkeypatch is gone: pv20_features.py now reads the
-#  2023 and 2024+ CSV layouts itself with file_layout(), like features_pv20.py)
+@contextmanager
+def raw_csv_layout():
+    """Support four/five leading columns and trailing delimiters; keep PV20 formulas."""
+    original = pv20._parse
+    def parse(source, chunksize, skip_header):
+        if isinstance(source, (str, os.PathLike)):
+            with open(source, encoding="utf-8", errors="replace") as stream:
+                if skip_header:
+                    stream.readline()
+                first = stream.readline()
+        else:
+            pos = source.tell()
+            if skip_header:
+                source.readline()
+            first = source.readline()
+            source.seek(pos)
+        fields = next(csv.reader([first], delimiter=";")) if first else []
+        if len(fields) > 2 and fields[1].strip() in (pv20.OBIS_IMPORT, pv20.OBIS_EXPORT):
+            leading = ["mp_id", "obis", "date", "plz"]
+        elif len(fields) > 2 and fields[2].strip() in (pv20.OBIS_IMPORT, pv20.OBIS_EXPORT):
+            leading = pv20.LEAD_COLS
+        else:
+            raise ValueError("Unrecognized AEW row layout/OBIS: " + repr(fields[:5]))
+        names = leading + pv20.VCOLS
+        dtypes = {c: "string" for c in leading}
+        dtypes.update({c: "float32" for c in pv20.VCOLS})
+        return pd.read_csv(
+            source, sep=";", header=None, names=names, index_col=False,
+            usecols=range(len(names)), skiprows=1 if skip_header else 0,
+            dtype=dtypes, na_values=["", " ", "-"], keep_default_na=False,
+            chunksize=chunksize, encoding="utf-8", encoding_errors="replace", engine="c",
+        )
+    pv20._parse = parse
+    try:
+        yield
+    finally:
+        pv20._parse = original
 
 
 # =============================================================================
@@ -355,8 +387,6 @@ def mpid_plz_from_store(
     Read only mp_id + plz from the Parquet buckets needed by these houses.
 
     This does NOT reload the 96 time-series columns.
-    Returns {} if the store was built without a 'plz' column (the caller then
-    falls back to the raw CSV lines).
     """
     import pyarrow.dataset as ds
 
@@ -364,8 +394,11 @@ def mpid_plz_from_store(
     by_bucket: Dict[int, List[str]] = {}
 
     for mp in ids:
-        # same bucket rule as build_store.py / pv20_features.read_store
-        by_bucket.setdefault(pv20.bucket_of(mp), []).append(mp)
+        try:
+            b = int(mp) % pv20.N_BUCKETS
+        except ValueError:
+            b = 0
+        by_bucket.setdefault(b, []).append(mp)
 
     out: Dict[str, str] = {}
 
@@ -379,11 +412,11 @@ def mpid_plz_from_store(
 
         available = set(dataset.schema.names)
         if "plz" not in available:
-            print(
-                f"note: {store} has no 'plz' column -> PLZ will be read from the raw CSV lines",
-                flush=True,
+            raise RuntimeError(
+                "The aew_store has no 'plz' column. "
+                "Rebuild it with the supplied build_store.py or provide "
+                "a GP->MPID mapping if you want to use GIGI alone."
             )
-            return {}
 
         tab = dataset.to_table(
             filter=ds.field("mp_id").isin(ids_b),
@@ -425,13 +458,11 @@ def mpid_plz_from_csv(
     """
     Read ONLY enough raw CSV text to recover PLZ for selected MP IDs.
 
-    AEW row layouts (detected per file by pv20.file_layout):
-        2023 : MP ID ; meter ; OBIS ; date ; PLZ ; 96 values
-        2024+: MP ID ; OBIS ; date ; PLZ ; 96 values ;
+    AEW fixed row layout:
+        MP ID ; meter ; OBIS ; date ; PLZ ; 96 values
 
     For a small quick-test set (e.g. 3 houses), this uses pv20.filter_lines()
     so only matching text lines are extracted. It does NOT parse all 96 columns.
-    Files are read in order and the search stops once every house has a PLZ.
     """
     ids = sorted(set(str(x).strip() for x in mp_ids if str(x).strip()))
     if not ids:
@@ -445,21 +476,17 @@ def mpid_plz_from_csv(
         if not missing:
             break
 
-        # same house set as pv20.load_days -> in CSV mode this hits its line cache
         text = pv20.filter_lines(path, ids, cache_dir=cache_dir)
         if not text.strip():
             continue
 
-        plz_index = pv20.file_layout(path)["roles"]["plz"]
-        if plz_index is None:
-            continue
-
         for line in text.splitlines():
             parts = line.split(";")
-            if len(parts) <= plz_index:
+            if len(parts) < 5:
                 continue
 
             mp = parts[0].strip()
+            plz_index = 3 if parts[1].strip() in (pv20.OBIS_IMPORT, pv20.OBIS_EXPORT) else 4
             plz = parts[plz_index].strip()
 
             if mp in missing and re.fullmatch(r"\d{4}", plz):
@@ -945,8 +972,7 @@ def download_station_hourly(
     for url in urls:
         if "_h_now" in url:
             continue
-        # skip archive files that do not cover any year of meter data (\d = digit)
-        span = re.search(r"historical_(\d{4})-(\d{4})", url)
+        span = re.search(r"historical_(d{4})-(d{4})", url)
         if span and years and not any(int(span[1]) <= y <= int(span[2]) for y in years):
             continue
         name = os.path.basename(
@@ -1113,7 +1139,6 @@ class WeatherRepository:
         )
 
         self._plz_choice: Dict[str, dict] = {}
-        self._plz_daily: Dict[str, pd.DataFrame] = {}      # radiation + (maybe borrowed) temperature per PLZ
         self._station_daily: Dict[str, pd.DataFrame] = {}
         self._station_errors = {}
 
@@ -1132,39 +1157,6 @@ class WeatherRepository:
 
         return self._station_daily[station]
 
-    def _with_temperature(
-        self,
-        daily: pd.DataFrame,
-        ranked: pd.DataFrame,
-        station: str,
-    ) -> Tuple[pd.DataFrame, str]:
-        """
-        Some stations measure radiation but not temperature (e.g. STC St. Chrischona).
-        Then keep their radiation and take the temperature from the nearest station
-        that has it in the meter period.  Returns (daily table, temperature station).
-        """
-        period = self.dates if self.dates is not None else daily.index
-
-        if daily["temperature_c"].reindex(period).notna().sum() >= MIN_WEATHER_DAYS:
-            return daily, station
-
-        for _, row in ranked.iterrows():
-            other = str(row["station"]).strip()
-            if other == station:
-                continue
-            try:
-                other_daily = self._station_daily_data(other)
-            except Exception as exc:
-                self._station_errors[other] = str(exc)
-                continue
-
-            if other_daily["temperature_c"].reindex(period).notna().sum() >= MIN_WEATHER_DAYS:
-                merged = daily.copy()                       # never overwrite the cached station table
-                merged["temperature_c"] = other_daily["temperature_c"].reindex(merged.index)
-                return merged, other
-
-        return daily, station                                # nothing better found -> feature 5 stays NaN
-
     def for_plz(
         self,
         plz: str,
@@ -1172,7 +1164,11 @@ class WeatherRepository:
         plz = str(plz).strip()
 
         if plz in self._plz_choice:
-            return self._plz_daily[plz], self._plz_choice[plz]
+            info = self._plz_choice[plz]
+            return (
+                self._station_daily_data(info["station"]),
+                info,
+            )
 
         ort = self.plz_to_ort.get(plz, "")
 
@@ -1204,9 +1200,6 @@ class WeatherRepository:
                     and daily["irradiation_kwh_m2"].reindex(self.dates if self.dates is not None else daily.index).notna().sum()
                     >= MIN_WEATHER_DAYS
                 ):
-                    daily, temp_station = self._with_temperature(daily, ranked, station)
-                    temp_row = ranked[ranked["station"].astype(str).str.strip() == temp_station].iloc[0]
-
                     info = {
                         "plz": plz,
                         "ort": ort,
@@ -1218,12 +1211,9 @@ class WeatherRepository:
                         "station_distance_km": float(
                             station_row["distance_km"]
                         ),
-                        "temperature_station": f"{temp_station} {temp_row['name']}",
-                        "temperature_station_distance_km": float(temp_row["distance_km"]),
                     }
 
                     self._plz_choice[plz] = info
-                    self._plz_daily[plz] = daily
                     return daily, info
 
                 errors.append(f"{station}: insufficient irradiation in meter period")
@@ -1459,40 +1449,26 @@ def add_weather_features(
     out["ort"] = ""
     out["weather_station"] = ""
     out["weather_station_distance_km"] = np.nan
-    out["weather_temperature_station"] = ""
-    out["weather_temperature_station_distance_km"] = np.nan
     out["weather_common_summer_days"] = 0
     out["weather_common_winter_days"] = 0
     out["weather_error"] = ""
 
     ids = [str(x) for x in out.index]
 
-    # PLZ: binary store first (if it has the column), raw CSV lines for whatever is left
-    plz_map: Dict[str, str] = mpid_plz_from_store(store, ids) if store else {}
-    missing = [mp for mp in ids if mp not in plz_map]
-
-    if missing and root and os.path.isdir(root):
-        print(f"PLZ from raw CSV lines for {len(missing):,} houses ...", flush=True)
-        plz_map.update(
-            mpid_plz_from_csv(
-                root,
-                missing,
-                pattern=pattern,
-                cache_dir=cache_dir,
-            )
+    if store:
+        plz_map = mpid_plz_from_store(
+            store,
+            ids,
         )
-    elif missing and not store:
+    elif root:
+        plz_map = mpid_plz_from_csv(
+            root,
+            ids,
+            pattern=pattern,
+            cache_dir=cache_dir,
+        )
+    else:
         raise RuntimeError("Need either --store or a CSV root to recover PLZ")
-    elif missing:
-        print(
-            f"note: no PLZ for {len(missing):,} houses and no CSV root to look it up "
-            f"(give the CSV folder as first argument, e.g. {DEFAULT_CSV_ROOT})",
-            flush=True,
-        )
-
-    # row positions of each house in `days`, computed once
-    # (filtering the whole per-day table per house is too slow for many houses)
-    rows_by_house = days.groupby(days["mp_id"].astype(str), sort=False).indices
 
     for i, mp_id in enumerate(ids, start=1):
         plz = plz_map.get(mp_id, "")
@@ -1513,7 +1489,7 @@ def add_weather_features(
             weather, info = weather_repo.for_plz(plz)
 
             electric = electricity_for_house(
-                days.iloc[rows_by_house.get(mp_id, [])],
+                days,
                 mp_id,
             )
 
@@ -1539,12 +1515,6 @@ def add_weather_features(
                 "weather_station_distance_km",
             ] = info.get("station_distance_km", np.nan)
 
-            # temperature can come from another station (see WeatherRepository._with_temperature)
-            out.loc[mp_id, "weather_temperature_station"] = info.get("temperature_station", "")
-            out.loc[mp_id, "weather_temperature_station_distance_km"] = info.get(
-                "temperature_station_distance_km", np.nan
-            )
-
             for name, value in diagnostics.items():
                 out.loc[mp_id, name] = value
 
@@ -1553,81 +1523,6 @@ def add_weather_features(
             print(f"MP {mp_id}: weather error: {exc}", flush=True)
 
     return out
-
-
-# =============================================================================
-# 11b. NO NaN IN THE OUTPUT: NEUTRAL FILL VALUES
-# =============================================================================
-#
-# A feature is NaN for two reasons:
-#   - it is undefined: no (real) export -> the shape of the export does not exist,
-#     a correlation with a constant series is 0/0, a sunny/cloudy contrast is 0/0;
-#   - too little data: < 20 days in a season (pv20 MIN_DAYS / MIN_WEATHER_DAYS),
-#     or no temperature at any nearby station.
-# In both cases we put the value a house WITHOUT PV / battery would show, so a fill
-# never looks like a detection.  The formulas themselves are untouched (pv20_features.py
-# still returns NaN; only this output is filled), and n_filled_features tells the model
-# how many of the 25 values of a house were filled.  --keep-nan switches this off.
-#
-# Export-shape features (5-9) with no export: we take a source with NO daily shape, i.e.
-# export spread uniformly over the 24 h.  For a uniform hour h on [0, 24):
-#   share in a window of L hours = L / 24
-#   E[h] = 12 h,  Var[h] = 24^2 / 12 = 48 h^2  ->  std = 24 / sqrt(12) = 6.93 h
-# (PV: mean ~13.5 h, std ~2-3 h; evening battery: short burst, std ~1 h.)
-
-FILL_VALUES = {
-    # A. export counter
-    "export_kwh_total": 0.0,
-    "export_days_frac": 0.0,
-    "export_to_import_ratio_summer": 0.0,
-    "export_to_import_ratio_winter": 0.0,
-    "export_winter_share": 0.5,                     # no seasonal cycle: winter per day = summer per day
-    "export_midday_share_summer": 8.0 / 24.0,       # 9-17 h window = 8 h of a flat day
-    "export_night_share": 10.0 / 24.0,              # 20-6 h window = 10 h of a flat day
-    "export_mean_hour_summer": 12.0,                # mean of a uniform hour on [0, 24)
-    "export_hour_std_summer": 24.0 / math.sqrt(12.0),
-    "export_max_kw": 0.0,
-    # B. import counter (same neutral values as features_pv20.py)
-    "import_midday_night_ratio_summer": 1.0,
-    "import_midday_night_ratio_winter": 1.0,
-    "import_zero_hours_midday_summer": 0.0,
-    "import_zero_hours_night": 0.0,
-    "import_midday_share_winter_minus_summer": 0.0,
-    "import_min_hour_offset_noon_summer": 12.0,
-    "import_summer_to_winter_ratio": 1.0,
-    "import_daylight_share_summer": 8.0 / 24.0,
-    "import_midday_spread_over_night_summer": 0.0,
-    "import_midday_p05_over_night_summer": 1.0,
-    # C. weather: "the meter does not respond to sun / temperature"
-    #    (for a constant series cov = 0, so 0 is also the natural value of the correlation)
-    "weather_export_irradiance_corr_summer": 0.0,
-    "weather_sunny_cloudy_export_contrast_summer": 0.0,
-    "weather_export_per_irradiation_summer": 0.0,
-    "weather_midday_import_irradiance_corr_summer": 0.0,
-    "weather_winter_import_temperature_corr": 0.0,
-    # data-quality columns that can be NaN
-    "has_real_export": 0,
-    "export_max_raw_kw": 0.0,
-    "mean_import_kw": 0.0,
-}
-
-assert set(MODEL_FEATURE_NAMES) <= set(FILL_VALUES)
-
-
-def fill_missing(tab: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """Replace every NaN of the model features by its FILL_VALUES entry.
-    Returns (filled table, boolean mask of what was NaN before filling)."""
-    tab = tab.copy()
-    feats = [c for c in MODEL_FEATURE_NAMES if c in tab.columns]
-    was_nan = tab[feats].isna()
-
-    for c, v in FILL_VALUES.items():
-        if c in tab.columns:
-            tab[c] = pd.to_numeric(tab[c], errors="coerce").fillna(v)
-
-    tab["has_real_export"] = tab["has_real_export"].astype(int)
-    tab["n_filled_features"] = was_nan.sum(axis=1).astype(int)
-    return tab, was_nan
 
 
 # =============================================================================
@@ -1644,24 +1539,18 @@ def main(argv: Optional[List[str]] = None) -> None:
     ap.add_argument(
         "root",
         nargs="?",
-        help=(
-            f"raw AEW CSV root (default {DEFAULT_CSV_ROOT} if it exists; with the store "
-            "it is only used to look up PLZ when the store has none)"
-        ),
+        help="raw AEW CSV root (normally unnecessary when --store is used)",
     )
     ap.add_argument(
         "--store",
         default=None,
-        help=(
-            f"binary store built by build_store.py (default: ./{pv20.STORE_DEFAULT} "
-            "if it exists; --store '' forces the CSVs)"
-        ),
+        help="optional binary store built by build_store.py",
     )
     ap.add_argument(
         "--gigi",
         help=(
-            f"HackDays2026 - GIGI.csv (default {DEFAULT_GIGI} if it exists); only PLZ, "
-            "Ort and Kanton are used, never PV/technology labels"
+            "HackDays2026 - GIGI.csv; only PLZ and Ort are used, "
+            "never PV/technology labels"
         ),
     )
     ap.add_argument(
@@ -1724,42 +1613,22 @@ def main(argv: Optional[List[str]] = None) -> None:
         action="store_true",
         help="debug: output only the original 20 features",
     )
-    ap.add_argument(
-        "--keep-nan",
-        action="store_true",
-        help="leave non-computable features empty instead of the neutral FILL_VALUES",
-    )
 
     a = ap.parse_args(argv)
     started = time.perf_counter()
 
-    # binary store first, exactly like pv20_features.py: ./aew_store is used if it exists
-    if a.store == "":
-        store = None
-    elif a.store:
-        store = a.store if os.path.isdir(a.store) else None
-        if store is None:
-            print(f"note: store '{a.store}' not found -> using raw CSV mode", flush=True)
-    else:
-        store = pv20.STORE_DEFAULT if os.path.isdir(pv20.STORE_DEFAULT) else None
+    store = a.store if a.store and os.path.isdir(a.store) else None
 
-    if store and a.root and a.store is None:
-        print(
-            f"note: using the store ./{pv20.STORE_DEFAULT} instead of the CSVs "
-            "(pass --store '' to force the CSVs)",
-            flush=True,
-        )
-
-    # the CSV root is still needed in store mode if the store has no PLZ column
-    root = a.root or (DEFAULT_CSV_ROOT if os.path.isdir(DEFAULT_CSV_ROOT) else None)
-    gigi = a.gigi or (DEFAULT_GIGI if os.path.isfile(DEFAULT_GIGI) else None)
-
-    if store is None and not root:
+    if store is None and not a.root:
         raise SystemExit(
             "Give either a CSV root folder or an existing --store folder."
         )
 
-    print(f"reading from: {'store ' + store if store else 'CSVs in ' + root}", flush=True)
+    if a.store and store is None:
+        print(
+            f"note: store '{a.store}' not found -> using raw CSV mode",
+            flush=True,
+        )
 
     ids = (
         [x.strip() for x in a.mp_ids.split(",") if x.strip()]
@@ -1779,20 +1648,21 @@ def main(argv: Optional[List[str]] = None) -> None:
         ids = (ids or []) + file_ids
 
     # -------------------------------------------------------------------------
-    # Exact original pv20 pipeline (store or CSV, pv20 decides).
+    # Exact original pv20 pipeline.
     # -------------------------------------------------------------------------
-    days = pv20.load_days(
-        root=root,
-        month=a.month,
-        max_files=a.max_files,
-        max_houses=a.max_houses,
-        mp_ids=ids,
-        pattern=a.pattern,
-        workers=a.workers,
-        cache_dir=(a.cache_dir or None),
-        store=store,
-        use_days_cache=not a.refresh_days,
-    )
+    with raw_csv_layout():
+        days = pv20.load_days(
+            root=a.root,
+            month=a.month,
+            max_files=a.max_files,
+            max_houses=a.max_houses,
+            mp_ids=ids,
+            pattern=a.pattern,
+            workers=a.workers,
+            cache_dir=(a.cache_dir or None),
+            store=store,
+            use_days_cache=not a.refresh_days,
+        )
 
     if days.empty:
         raise SystemExit("No valid meter rows found; check CSV layout, OBIS codes and selected MP IDs.")
@@ -1804,12 +1674,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     else:
         try:
             repo = WeatherRepository(
-                cache_dir=a.weather_cache, gigi_path=gigi,
+                cache_dir=a.weather_cache, gigi_path=a.gigi,
                 refresh=a.refresh_weather, dates=days["date"],
             )
             result = add_weather_features(
                 base_features=base, days=days, weather_repo=repo,
-                store=store, root=root, pattern=a.pattern, cache_dir=a.cache_dir or None,
+                store=store, root=a.root, pattern=a.pattern, cache_dir=a.cache_dir or None,
             )
         except Exception as exc:
             print(f"Weather initialization/mapping error: {exc}", flush=True)
@@ -1817,13 +1687,6 @@ def main(argv: Optional[List[str]] = None) -> None:
             for name in WEATHER_FEATURE_NAMES:
                 result[name] = np.nan
             result["weather_error"] = str(exc)
-
-    # what is NaN before filling (used for the report below)
-    feats = [c for c in MODEL_FEATURE_NAMES if c in result.columns]
-    was_nan = result[feats].isna()
-
-    if not a.keep_nan:
-        result, was_nan = fill_missing(result)
 
     result.to_csv(
         a.out,
@@ -1858,16 +1721,6 @@ def main(argv: Optional[List[str]] = None) -> None:
 
         print(f"Weather mapping errors    : {len(errors)}")
 
-    n_nan = int(was_nan.sum().sum())
-    print(
-        f"NaN feature values        : {n_nan:,}"
-        + ("" if a.keep_nan or n_nan == 0 else " -> filled with neutral values (see n_filled_features)")
-    )
-    if n_nan and len(result) > 10:
-        per_feature = was_nan.mean().mul(100).round(1)
-        print("share of houses filled per feature [%]:")
-        print(per_feature[per_feature > 0].sort_values(ascending=False).to_string())
-
     if len(result) <= 10:
         display_cols = [c for c in MODEL_FEATURE_NAMES if c in result]
 
@@ -1876,11 +1729,9 @@ def main(argv: Optional[List[str]] = None) -> None:
             "ort",
             "weather_station",
             "weather_station_distance_km",
-            "weather_temperature_station",
             "weather_common_summer_days",
             "weather_common_winter_days",
             "weather_error",
-            "n_filled_features",
         ):
             if extra in result.columns:
                 display_cols.append(extra)
@@ -1898,17 +1749,16 @@ def main(argv: Optional[List[str]] = None) -> None:
             print()
             print(result[display_cols].T)
 
-    if len(result) <= 10:
-        label = "NaN features" if a.keep_nan else "filled features"
-        for mp in result.index:
-            print(f"MP {mp} {label}: " + ", ".join(c for c in was_nan.columns if was_nan.loc[mp, c]))
+    for mp, row in result.iterrows():
+        if len(result) <= 10:
+            print(f"MP {mp} NaN features: " + ", ".join(c for c in MODEL_FEATURE_NAMES if c in row and pd.isna(row[c])))
 
     if not a.no_weather:
-        weather_nan = was_nan[[c for c in WEATHER_FEATURE_NAMES if c in was_nan]].all()
+        weather_nan = result[WEATHER_FEATURE_NAMES].isna().all()
 
         if weather_nan.any():
             print(
-                "\nWeather features NaN for every house" + ("" if a.keep_nan else " (now filled)") + ":",
+                "\nWeather features all-NaN:",
                 ", ".join(
                     weather_nan[weather_nan].index
                 ),
