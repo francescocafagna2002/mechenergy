@@ -13,4 +13,6 @@ build.log
 build_progress.txt
 *.csv
 !labelled_features.csv
+!labelled_features_ev.csv
+!houses_10000.csv
 *.xlsx
