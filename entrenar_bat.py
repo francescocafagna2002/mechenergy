@@ -1,7 +1,8 @@
 import pandas as pd
 from sklearn.metrics import roc_auc_score
 from load import cargar_tablas, construir_vector_labels
-from prueba_overfitting import entrenar_modelo, evaluar_modelo, explicar_prediccion
+from guardado_modelo import entrenar_modelo, evaluar_modelo, explicar_prediccion
+from guardado_modelo import guardar_modelo
 
 # 1. Cargar la matriz real que te dieron (ojo: la columna se llama "mp_id" en minúsculas)
 X = pd.read_csv("labelled_features_bat.csv", index_col="mp_id")
@@ -26,3 +27,5 @@ print("AUC en TEST:", roc_auc_score(y_test, proba_test))
 
 # 5. Explicar una casa concreta
 explicar_prediccion(modelo_bat, X, mp_id=X.index[0])
+
+guardar_modelo(modelo_bat, "modelo_bat.pkl")
